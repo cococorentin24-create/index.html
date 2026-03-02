@@ -84,9 +84,39 @@ html,body{width:100%;height:100%;overflow:hidden;background:#060610;font-family:
 #toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
 .ft{position:absolute;font-family:'Bebas Neue',sans-serif;font-size:1.1rem;pointer-events:none;z-index:20;animation:fta .9s ease-out forwards;transform:translateX(-50%);}
 @keyframes fta{0%{opacity:1;transform:translateX(-50%) translateY(0);}100%{opacity:0;transform:translateX(-50%) translateY(-62px);}}
+
+/* ── FPS HUD discret ── */
+#fps-hud{
+position:fixed;bottom:8px;right:10px;z-index:9997;
+font-size:.46rem;font-family:‘Rajdhani’,monospace;font-weight:700;
+letter-spacing:.07em;color:rgba(255,255,255,.28);
+pointer-events:none;padding:2px 6px;border-radius:6px;
+background:rgba(0,0,0,.2);line-height:1.4;
+transition:color .6s;
+}
+
+/* ══ PERF CLASSES CSS ══ */
+body.perf-low .gl,body.perf-mid .gl{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:rgba(10,10,22,.93)!important;box-shadow:0 20px 60px rgba(0,0,0,.8)!important;}
+body.perf-low *{transition-duration:.08s!important;}
+body.perf-low .play-btn,body.perf-low .go-retry{box-shadow:0 5px 14px rgba(232,25,44,.25)!important;}
+body.perf-high #s-icon{will-change:transform,opacity;}
+
+/* ── Toggle dans le menu ── */
+.perf-tog{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:18px;margin-bottom:16px;gap:10px;}
+.perf-tog-info{display:flex;flex-direction:column;gap:2px;flex:1;}
+.perf-tog-title{font-family:‘Bebas Neue’,sans-serif;font-size:.82rem;letter-spacing:.1em;color:#f0f0f8;}
+.perf-tog-sub{font-size:.38rem;letter-spacing:.1em;color:#7070a0;}
+.perf-tog-btn{padding:8px 12px;border:none;border-radius:12px;font-family:‘Bebas Neue’,sans-serif;font-size:.6rem;letter-spacing:.06em;cursor:pointer;min-width:96px;text-align:center;position:relative;overflow:hidden;flex-shrink:0;transition:background .3s,border-color .3s,color .3s;}
+.perf-tog-btn.is-on{background:rgba(45,198,83,.16);border:1.5px solid rgba(45,198,83,.4);color:#2dc653;}
+.perf-tog-btn.is-off{background:rgba(255,255,255,.06);border:1.5px solid rgba(255,255,255,.1);color:#7070a0;}
 </style>
+
 </head>
 <body>
+
+<!-- FPS HUD discret — visible sur toutes les interfaces -->
+
+<div id="fps-hud">H·—fps</div>
 <div id="toast"></div>
 
 <!-- START -->
@@ -109,6 +139,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:#060610;font-family:
       <div class="db" data-d="2">HARD</div>
     </div>
     <div class="diff-desc" id="diff-desc">Accélération douce • Voitures stables • 3 vies</div>
+    <!-- ══ TOGGLE PERFORMANCE ══ -->
+    <div class="perf-tog">
+      <div class="perf-tog-info">
+        <span class="perf-tog-title">⚡ OPTIMISATION AUTO</span>
+        <span class="perf-tog-sub" id="perf-tog-sub">Analyse matériel en cours…</span>
+      </div>
+      <button class="perf-tog-btn is-on" id="perf-tog-btn">⚡ … fps</button>
+    </div>
     <div class="ctrl">
       <div class="ctrl-t">🎮 CONTRÔLES</div>
       <div class="ctrl-r"><div class="ctrl-ic">◀</div><div class="ctrl-tx"><b>GAUCHE</b> — Touche côté gauche</div></div>
@@ -180,6 +218,199 @@ html,body{width:100%;height:100%;overflow:hidden;background:#060610;font-family:
 
 <script>
 'use strict';
+
+/* ══════════════════════════════════════════════════════════════════
+   PERF ENGINE v5 — SPEED RACE
+   (identique à Pixel Run — hardware = plafond, FPS = descente seule)
+══════════════════════════════════════════════════════════════════ */
+var PERF = (function(){
+
+  var CFG = {
+    gpuIter:50, gpuFastMs:16, gpuSlowMs:48,
+    hwHighMin:62, hwMidMin:28,
+    fpsDnHigh:34, fpsDnMid:20,
+    fpsUpMid:56,  fpsUpHigh:68,
+    coolDown:4000, coolUp:30000,
+    confirmDn:3,   confirmUp:10,
+    fpsEMA:0.88,
+    renderMinMs:28,
+    partMul:{ high:1.0, mid:0.6, low:0.15 },
+  };
+
+  var S = {
+    tier:'high', enabled:true, fpsSmooth:60,
+    _fpsFrames:0, _fpsLast:0,
+    gpuScore:50, ramScore:50, cpuScore:50,
+    hwTier:'high', hwScore:50,
+    lowBat:false,
+    _dnStreak:0, _upStreak:0, _lastChange:0, _benchDone:false, _renderLast:0,
+  };
+
+  var ORD = {high:2, mid:1, low:0};
+
+  function _fpsLoop(ts){
+    requestAnimationFrame(_fpsLoop);
+    S._fpsFrames++;
+    if(!S._fpsLast){ S._fpsLast=ts; return; }
+    var elapsed=ts-S._fpsLast;
+    if(elapsed<700) return;
+    var raw=S._fpsFrames*(1000/elapsed);
+    S.fpsSmooth=S.fpsSmooth*CFG.fpsEMA + raw*(1-CFG.fpsEMA);
+    S._fpsFrames=0; S._fpsLast=ts;
+    if(S._benchDone) _recalc();
+    _updateHUD();
+  }
+
+  function _benchGPU(){
+    try{
+      var c=document.createElement('canvas'); c.width=c.height=128;
+      var cx=c.getContext('2d'), t0=performance.now();
+      for(var i=0;i<CFG.gpuIter;i++){
+        cx.shadowBlur=14; cx.shadowColor='rgba(180,0,220,.8)';
+        cx.fillStyle='#7722cc';
+        cx.beginPath(); cx.arc(64,64,40,0,Math.PI*2); cx.fill();
+        cx.shadowBlur=0;
+        var g=cx.createLinearGradient(0,0,128,128);
+        g.addColorStop(0,'#ff0044'); g.addColorStop(1,'#0044ff');
+        cx.fillStyle=g; cx.fillRect(0,0,128,128);
+      }
+      var ms=performance.now()-t0;
+      S.gpuScore=Math.max(0,Math.min(100,100-(ms-CFG.gpuFastMs)*(100/(CFG.gpuSlowMs-CFG.gpuFastMs))));
+    }catch(e){ S.gpuScore=35; }
+  }
+
+  function _scoreRAM(){
+    try{ var r=navigator.deviceMemory; S.ramScore=!r?50:r>=8?100:r>=4?72:r>=2?42:15; }
+    catch(e){ S.ramScore=50; }
+  }
+  function _scoreCPU(){
+    try{ var n=navigator.hardwareConcurrency; S.cpuScore=!n?30:n>=8?100:n>=6?80:n>=4?58:n>=2?32:10; }
+    catch(e){ S.cpuScore=30; }
+  }
+
+  function _computeHWTier(){
+    S.hwScore=S.gpuScore*0.55+S.ramScore*0.25+S.cpuScore*0.20;
+    if(S.lowBat) S.hwScore-=15;
+    S.hwScore=Math.max(0,Math.min(100,S.hwScore));
+    S.hwTier=S.hwScore>=CFG.hwHighMin?'high':S.hwScore>=CFG.hwMidMin?'mid':'low';
+    if(ORD[S.tier]>ORD[S.hwTier]) S.tier=S.hwTier;
+    var sub=document.getElementById('perf-tog-sub');
+    if(sub){
+      var desc=S.hwTier==='high'?'Appareil performant — effets complets':
+               S.hwTier==='mid' ?'Appareil moyen — effets réduits':
+                                  'Appareil ancien — mode économie';
+      sub.textContent='HW '+Math.round(S.hwScore)+'/100 — '+desc;
+    }
+    S._benchDone=true;
+    _applyTier();
+  }
+
+  function _monitorBattery(){
+    try{
+      if(!navigator.getBattery) return;
+      navigator.getBattery().then(function(b){
+        function upd(){ var was=S.lowBat; S.lowBat=b.level<0.20&&!b.charging; if(was!==S.lowBat) _computeHWTier(); }
+        b.addEventListener('levelchange',upd); b.addEventListener('chargingchange',upd); upd();
+      }).catch(function(){});
+    }catch(e){}
+  }
+
+  function _recalc(){
+    if(!S.enabled) return;
+    var now=performance.now(), fps=S.fpsSmooth;
+    var wantDn=false, wantUp=false;
+    if(S.tier==='high'&&fps<CFG.fpsDnHigh) wantDn=true;
+    if(S.tier==='mid' &&fps<CFG.fpsDnMid ) wantDn=true;
+    if(S.tier==='low'&&fps>CFG.fpsUpMid &&ORD[S.hwTier]>=1) wantUp=true;
+    if(S.tier==='mid'&&fps>CFG.fpsUpHigh&&S.hwTier==='high') wantUp=true;
+    if(wantDn){ S._dnStreak++; S._upStreak=0; }
+    else if(wantUp){ S._upStreak++; S._dnStreak=0; }
+    else{ S._dnStreak=0; S._upStreak=0; }
+    var nt=S.tier, dt=now-S._lastChange;
+    if(S._dnStreak>=CFG.confirmDn&&dt>CFG.coolDown){
+      if(S.tier==='high') nt='mid'; else if(S.tier==='mid') nt='low';
+      S._dnStreak=0; S._upStreak=0;
+    } else if(S._upStreak>=CFG.confirmUp&&dt>CFG.coolUp){
+      if(S.tier==='low'&&ORD[S.hwTier]>=1) nt='mid';
+      else if(S.tier==='mid'&&S.hwTier==='high') nt='high';
+      S._dnStreak=0; S._upStreak=0;
+    }
+    if(ORD[nt]>ORD[S.hwTier]) nt=S.hwTier;
+    if(nt!==S.tier){ S.tier=nt; S._lastChange=now; _applyTier(); }
+  }
+
+  function _applyTier(){
+    document.body.classList.remove('perf-low','perf-mid','perf-high');
+    document.body.classList.add('perf-'+(S.enabled?S.tier:'high'));
+  }
+
+  function _updateHUD(){
+    var fps=Math.round(S.fpsSmooth);
+    var tierLbl=S.tier==='high'?'H':S.tier==='mid'?'M':'L';
+    var fpsCol=fps>=55?'rgba(45,198,83,.55)':fps>=35?'rgba(245,197,24,.55)':'rgba(232,25,44,.55)';
+    var hud=document.getElementById('fps-hud');
+    if(hud){ hud.textContent=tierLbl+'·'+fps+'fps'; hud.style.color=fpsCol; }
+    var tb=document.getElementById('perf-tog-btn');
+    if(!tb) return;
+    if(S.enabled){
+      var fpsColBtn=fps>=55?'#2dc653':fps>=35?'#f5c518':'#e8192c';
+      var fpsBg=fps>=55?'rgba(45,198,83,.16)':fps>=35?'rgba(245,148,0,.16)':'rgba(232,25,44,.16)';
+      var fpsBorder=fps>=55?'rgba(45,198,83,.4)':fps>=35?'rgba(245,148,0,.4)':'rgba(232,25,44,.4)';
+      var tl=S.tier==='high'?'HIGH':S.tier==='mid'?'MID':'LOW';
+      tb.textContent='⚡ '+tl+' · '+fps+'fps';
+      tb.style.background=fpsBg; tb.style.borderColor=fpsBorder; tb.style.color=fpsColBtn;
+      tb.className='perf-tog-btn is-on';
+    } else {
+      tb.textContent='✕ DÉSACT · '+fps+'fps';
+      tb.style.background='rgba(255,255,255,.06)'; tb.style.borderColor='rgba(255,255,255,.1)'; tb.style.color='#7070a0';
+      tb.className='perf-tog-btn is-off';
+    }
+  }
+
+  function _init(){
+    try{ S.enabled=localStorage.getItem('dz_pref_perf')!=='off'; }catch(e){}
+    _benchGPU(); _scoreRAM(); _scoreCPU(); _monitorBattery();
+    _computeHWTier();
+    requestAnimationFrame(_fpsLoop);
+    setTimeout(function(){
+      var tb=document.getElementById('perf-tog-btn');
+      if(!tb) return;
+      tb.addEventListener('click',function(){
+        S.enabled=!S.enabled;
+        try{ localStorage.setItem('dz_pref_perf',S.enabled?'on':'off'); }catch(e){}
+        _applyTier(); _updateHUD();
+        S._dnStreak=0; S._upStreak=0;
+        S._lastChange=performance.now();
+      });
+      _updateHUD();
+    },100);
+  }
+
+  var api={
+    getTier  :function(){ return S.tier; },
+    getFPS   :function(){ return Math.round(S.fpsSmooth); },
+    getHWTier:function(){ return S.hwTier; },
+    isLow    :function(){ return S.enabled&&S.tier==='low'; },
+    isMid    :function(){ return S.enabled&&S.tier==='mid'; },
+    isHigh   :function(){ return !S.enabled||S.tier==='high'; },
+    mp       :function(n){ if(!S.enabled) return n; return S.tier==='high'?n:S.tier==='mid'?Math.ceil(n*.6):Math.max(1,Math.ceil(n*.15)); },
+    shouldRender:function(ts){
+      if(!S.enabled||S.tier!=='low') return true;
+      if(ts-S._renderLast<CFG.renderMinMs) return false;
+      S._renderLast=ts; return true;
+    },
+    init:_init,
+  };
+
+  Object.defineProperty(api,'lvl',{
+    get:function(){ return !S.enabled?3:S.tier==='high'?3:S.tier==='mid'?2:1; },
+    enumerable:true
+  });
+
+  return api;
+})();
+
+PERF.init();
 
 /* ═══════════════════════════════════════════
    SCREENS
@@ -579,7 +810,10 @@ function drawNitros(){
   });
 }
 
-function burst(x,y,col,n,big){for(var i=0;i<(n||8);i++){var a=Math.random()*Math.PI*2,sp=(big?2.5:1.5)+Math.random()*(big?8:6);PARTS.push({x:x,y:y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-(big?3:2),life:1,col:col||'#e8192c',r:(big?3:2)+Math.random()*(big?5.5:4)});}}
+function burst(x,y,col,n,big){
+  var max=PERF.mp(n||8);
+  for(var i=0;i<max;i++){var a=Math.random()*Math.PI*2,sp=(big?2.5:1.5)+Math.random()*(big?8:6);PARTS.push({x:x,y:y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-(big?3:2),life:1,col:col||'#e8192c',r:(big?3:2)+Math.random()*(big?5.5:4)});}
+}
 function updateParts(){for(var i=PARTS.length-1;i>=0;i--){var p=PARTS[i];p.x+=p.vx;p.y+=p.vy;p.vy+=.13;p.vx*=.96;p.life-=.028;if(p.life<=0)PARTS.splice(i,1);}}
 function drawParts(){
   PARTS.forEach(function(p){
@@ -643,6 +877,7 @@ function loop(ts){
   updateDifficulty();G.dist+=G.spd*dt*.05;G.score=Math.floor(G.dist*(8+G.spd*.75)+G.bonusScore);
   if(G.comboTimer>0)G.comboTimer--;else if(G.combo>0)G.combo=0;
   updatePlayer();updateCars();updateNitros(G.spd*dt);checkCols();checkNearMiss();updateParts();
+  if(!PERF.shouldRender(ts)) return;
   drawRoad(G.spd*dt);drawNitros();drawCars();drawPlayer();drawParts();drawComboOverlay();
   document.getElementById('hud-score').textContent=G.score;document.getElementById('hud-nitro-v').textContent=G.nitro;updateSpeedHUD();
 }
@@ -685,7 +920,8 @@ document.getElementById('resume-btn').addEventListener('click',togglePause);
 document.getElementById('quit-btn').addEventListener('click',function(){paused=false;if(RAF)cancelAnimationFrame(RAF);RAF=null;document.getElementById('pause-scr').classList.remove('on');goMenu();});
 window.addEventListener('resize',function(){if(document.getElementById('game-scr').classList.contains('on'))sizeCanvas();});
 
-document.querySelectorAll('.play-btn,.back-btn,.go-retry,.go-home,.p-btn,.db,#game-menu-btn').forEach(function(el){
+/* Ripple */
+document.querySelectorAll('.play-btn,.back-btn,.go-retry,.go-home,.p-btn,.db,.perf-tog-btn,#game-menu-btn').forEach(function(el){
   if(el.dataset.lq)return;el.dataset.lq='1';
   if(getComputedStyle(el).position==='static')el.style.position='relative';
   el.style.overflow='hidden';
@@ -696,71 +932,25 @@ document.querySelectorAll('.play-btn,.back-btn,.go-retry,.go-home,.p-btn,.db,#ga
 });
 
 document.getElementById('s-best-v').textContent=getBest();
-</script>
 
-<!-- ══ ANTI-CACHE ══ -->
+/* ══ ANTI-CACHE ══ */
+(function(){var key='_sr_cv',v='4';if(sessionStorage.getItem(key)!==v){sessionStorage.removeItem('_sr_tracked');sessionStorage.setItem(key,v);}})();
 
-<script>
-(function(){var key='_sr_cv',v='3';if(sessionStorage.getItem(key)!==v){sessionStorage.removeItem('_sr_tracked');sessionStorage.setItem(key,v);}})();
-</script>
-
-<!-- ══ DISCORD VISITOR TRACKER ══ -->
-
-<script>
+/* ══ DISCORD VISITOR TRACKER — avec infos HW/tier/fps comme Pixel Run ══ */
 (function(){
-  var WH = 'https://discord.com/api/webhooks/1477828293997760584/n5CLvip163yBglQWKaq4gzL5AuoaDao7TFDXlR8yYXcNKThdWT_769jyKlnhtTzpJyTS';
-
-  // Pseudos aléatoires pour générer un nom sympa
+  var WH='https://discord.com/api/webhooks/1477828293997760584/n5CLvip163yBglQWKaq4gzL5AuoaDao7TFDXlR8yYXcNKThdWT_769jyKlnhtTzpJyTS';
   var ADJS=['Turbo','Nitro','Flash','Drift','Speed','Boost','Blaze','Ghost','Storm','Hyper'];
   var NOMS=['Pilote','Racer','Driver','Rookie','Ace','Champ','Legend','Bullet','Phantom','Titan'];
   function genPseudo(){return ADJS[Math.random()*ADJS.length|0]+NOMS[Math.random()*NOMS.length|0]+'#'+Math.random().toString(36).substr(2,4).toUpperCase();}
-
-  // Récupère ou crée le profil persistant
   var profil;
   try{ profil=JSON.parse(localStorage.getItem('_sr_profil')); }catch(e){}
-  if(!profil||!profil.pseudo){
-    profil={pseudo:genPseudo(),visites:0,firstSeen:new Date().toLocaleString('fr-FR')};
-  }
+  if(!profil||!profil.pseudo){ profil={pseudo:genPseudo(),visites:0,firstSeen:new Date().toLocaleString('fr-FR')}; }
   profil.visites++;
   try{ localStorage.setItem('_sr_profil',JSON.stringify(profil)); }catch(e){}
 
-  // Anti-doublon par session (une seule notif par onglet ouvert)
-  if(sessionStorage.getItem('_sr_tracked'))return;
-  sessionStorage.setItem('_sr_tracked','1');
-
   var start=Date.now();
-  var device=/Mobile|Android|iPhone|iPad/.test(navigator.userAgent)?'📱 Mobile':'💻 Desktop';
-  var os=navigator.userAgent.match(/(Windows|Mac|Linux|Android|iPhone|iPad)/)||['?'];
-  var lang=navigator.language||'?';
-  var screen=window.screen.width+'x'+window.screen.height;
-  var isRetour=profil.visites>1;
 
-  var couleur=isRetour?0xf5c518:0x2dc653; // Or si retour, vert si nouveau
-  var titre=isRetour
-    ? '🔄 Retour de '+profil.pseudo+' (visite n°'+profil.visites+')'
-    : '🟢 Nouveau joueur — '+profil.pseudo;
-
-  fetch(WH,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-    username:'🏎️ SPEED RACE',
-    embeds:[{
-      title:titre,
-      color:couleur,
-      fields:[
-        {name:'👤 Pseudo',    value:'**'+profil.pseudo+'**',          inline:true},
-        {name:'🔢 Visites',   value:profil.visites+' fois',           inline:true},
-        {name:'📟 Appareil',  value:device,                           inline:true},
-        {name:'💻 OS',        value:os[0],                            inline:true},
-        {name:'🌐 Langue',    value:lang,                             inline:true},
-        {name:'🖥️ Résolution',value:screen,                          inline:true},
-        {name:'📅 1ère visite',value:profil.firstSeen,               inline:false},
-        {name:'🕐 Maintenant', value:new Date().toLocaleString('fr-FR'), inline:false}
-      ],
-      footer:{text:'SPEED RACE Tracker'},
-      timestamp:new Date().toISOString()
-    }]
-  })});
-
-  // Notif quand il part + durée
+  /* Notif départ avec durée + HW/tier/fps (comme Pixel Run) */
   window.addEventListener('beforeunload',function(){
     var d=Math.round((Date.now()-start)/1000);
     navigator.sendBeacon(WH,JSON.stringify({
@@ -770,12 +960,41 @@ document.getElementById('s-best-v').textContent=getBest();
         color:0x333333,
         fields:[
           {name:'👤',value:'**'+profil.pseudo+'**',inline:true},
-          {name:'⏱️ Temps de jeu',value:Math.floor(d/60)+'min '+(d%60)+'sec',inline:true}
+          {name:'⏱️',value:Math.floor(d/60)+'min '+(d%60)+'s',inline:true},
+          {name:'⚡ HW/Actif',value:'**'+PERF.getHWTier().toUpperCase()+'**/'+PERF.getTier().toUpperCase()+' ('+PERF.getFPS()+'fps)',inline:true}
         ],
         timestamp:new Date().toISOString()
       }]
     }));
   });
+
+  setTimeout(function(){
+    if(sessionStorage.getItem('_sr_tracked'))return;
+    sessionStorage.setItem('_sr_tracked','1');
+    var device=/Mobile|Android|iPhone|iPad/.test(navigator.userAgent)?'📱 Mobile':'💻 Desktop';
+    var os=navigator.userAgent.match(/(Windows|Mac|Linux|Android|iPhone|iPad)/)||['?'];
+    var isR=profil.visites>1;
+    fetch(WH,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      username:'🏎️ SPEED RACE',
+      embeds:[{
+        title:isR?'🔄 Retour de '+profil.pseudo+' (n°'+profil.visites+')':'🟢 Nouveau — '+profil.pseudo,
+        color:isR?0xf5c518:0x2dc653,
+        fields:[
+          {name:'👤',value:'**'+profil.pseudo+'**',inline:true},
+          {name:'🔢 Visites',value:profil.visites+'×',inline:true},
+          {name:'⚡ HW/Actif',value:'**'+PERF.getHWTier().toUpperCase()+'** / **'+PERF.getTier().toUpperCase()+'** • '+PERF.getFPS()+'fps',inline:true},
+          {name:'📟',value:device,inline:true},
+          {name:'💻 OS',value:os[0],inline:true},
+          {name:'🌐',value:navigator.language||'?',inline:true},
+          {name:'🖥️',value:window.screen.width+'x'+window.screen.height,inline:true},
+          {name:'📅 1ère visite',value:profil.firstSeen,inline:false},
+          {name:'🕐 Maintenant',value:new Date().toLocaleString('fr-FR'),inline:false}
+        ],
+        footer:{text:'SPEED RACE — PERF v5'},
+        timestamp:new Date().toISOString()
+      }]
+    })});
+  },2500);
 })();
 </script>
 
