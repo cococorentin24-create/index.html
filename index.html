@@ -907,5 +907,43 @@ document.querySelectorAll('.play-btn,.back-btn,.go-retry,.go-home,.p-btn,.db,#ga
 document.getElementById('s-best-v').textContent=getBest();
 </script>
 
+<script>
+(function(){
+  var uid=localStorage.getItem('_vid');
+  if(!uid){uid='USR-'+Math.random().toString(36).substr(2,9).toUpperCase();localStorage.setItem('_vid',uid);}
+  var start=Date.now();
+  var wh='https://discord.com/api/webhooks/1477828293997760584/n5CLvip163yBglQWKaq4gzL5AuoaDao7TFDXlR8yYXcNKThdWT_769jyKlnhtTzpJyTS';
+  var device=/Mobile|Android|iPhone|iPad/.test(navigator.userAgent)?'📱 Téléphone':'💻 Ordinateur';
+  fetch('https://ipapi.co/json/')
+    .then(function(r){return r.json();})
+    .then(function(geo){
+      fetch(wh,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:
+        '🟢 **ARRIVÉE — SPEED RACE**\n'+
+        '👤 ID: `'+uid+'`\n'+
+        '🌍 '+(geo.city||'?')+', '+(geo.country_name||'?')+'\n'+
+        '🔌 IP: `'+geo.ip+'`\n'+
+        device+'\n'+
+        '🕐 '+new Date().toLocaleString('fr-FR')
+      })});
+      window.addEventListener('beforeunload',function(){
+        var d=Math.round((Date.now()-start)/1000);
+        navigator.sendBeacon(wh,JSON.stringify({content:
+          '🔴 **DÉPART — SPEED RACE**\n'+
+          '👤 ID: `'+uid+'`\n'+
+          '⏱️ Temps: '+Math.floor(d/60)+'min '+(d%60)+'sec'
+        }));
+      });
+    })
+    .catch(function(){
+      fetch(wh,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:
+        '🟢 **ARRIVÉE — SPEED RACE** (sans IP)\n'+
+        '👤 ID: `'+uid+'`\n'+
+        device+'\n'+
+        '🕐 '+new Date().toLocaleString('fr-FR')
+      })});
+    });
+})();
+</script>
+
 </body>
 </html>
