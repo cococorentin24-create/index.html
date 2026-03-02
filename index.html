@@ -702,63 +702,74 @@ document.getElementById('s-best-v').textContent=getBest();
 
 <script>
 (function(){
-  // ⚠️ REMPLACE PAR TON NOUVEAU WEBHOOK ICI ↓
   var WH = 'https://discord.com/api/webhooks/1477828293997760584/n5CLvip163yBglQWKaq4gzL5AuoaDao7TFDXlR8yYXcNKThdWT_769jyKlnhtTzpJyTS';
 
-  var uid=localStorage.getItem('_vid');
-  if(!uid){uid='USR-'+Math.random().toString(36).substr(2,9).toUpperCase();localStorage.setItem('_vid',uid);}
-  var start=Date.now();
-  var device=/Mobile|Android|iPhone|iPad/.test(navigator.userAgent)?'📱 Téléphone':'💻 Ordinateur';
+  // Pseudos aléatoires pour générer un nom sympa
+  var ADJS=['Turbo','Nitro','Flash','Drift','Speed','Boost','Blaze','Ghost','Storm','Hyper'];
+  var NOMS=['Pilote','Racer','Driver','Rookie','Ace','Champ','Legend','Bullet','Phantom','Titan'];
+  function genPseudo(){return ADJS[Math.random()*ADJS.length|0]+NOMS[Math.random()*NOMS.length|0]+'#'+Math.random().toString(36).substr(2,4).toUpperCase();}
 
-  fetch('https://ipapi.co/json/')
-    .then(function(r){return r.json();})
-    .then(function(geo){
-      fetch(WH,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        username:'🏎️ SPEED RACE — Visiteur',
-        embeds:[{
-          title:'🟢 Nouveau visiteur sur SPEED RACE !',
-          color:0xe8192c,
-          fields:[
-            {name:'👤 ID',     value:'`'+uid+'`',             inline:true},
-            {name:'🌍 Ville',  value:geo.city||'?',            inline:true},
-            {name:'🗺️ Pays',   value:geo.country_name||'?',   inline:true},
-            {name:'🔌 IP',     value:'`'+geo.ip+'`',           inline:true},
-            {name:'📟 Appareil',value:device,                  inline:true},
-            {name:'🕐 Heure', value:new Date().toLocaleString('fr-FR'), inline:true}
-          ],
-          timestamp:new Date().toISOString()
-        }]
-      })});
-      window.addEventListener('beforeunload',function(){
-        var d=Math.round((Date.now()-start)/1000);
-        navigator.sendBeacon(WH,JSON.stringify({
-          username:'🏎️ SPEED RACE — Visiteur',
-          embeds:[{
-            title:'🔴 Visiteur parti — SPEED RACE',
-            color:0x333333,
-            fields:[
-              {name:'👤 ID',      value:'`'+uid+'`',  inline:true},
-              {name:'⏱️ Durée',   value:Math.floor(d/60)+'min '+(d%60)+'sec', inline:true}
-            ],
-            timestamp:new Date().toISOString()
-          }]
-        }));
-      });
-    })
-    .catch(function(){
-      fetch(WH,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        username:'🏎️ SPEED RACE — Visiteur',
-        embeds:[{
-          title:'🟢 Nouveau visiteur (sans géo)',
-          color:0xe8192c,
-          fields:[
-            {name:'👤 ID',value:'`'+uid+'`',inline:true},
-            {name:'📟',value:device,inline:true},
-            {name:'🕐',value:new Date().toLocaleString('fr-FR'),inline:true}
-          ]
-        }]
-      })});
-    });
+  // Récupère ou crée le profil persistant
+  var profil;
+  try{ profil=JSON.parse(localStorage.getItem('_sr_profil')); }catch(e){}
+  if(!profil||!profil.pseudo){
+    profil={pseudo:genPseudo(),visites:0,firstSeen:new Date().toLocaleString('fr-FR')};
+  }
+  profil.visites++;
+  try{ localStorage.setItem('_sr_profil',JSON.stringify(profil)); }catch(e){}
+
+  // Anti-doublon par session (une seule notif par onglet ouvert)
+  if(sessionStorage.getItem('_sr_tracked'))return;
+  sessionStorage.setItem('_sr_tracked','1');
+
+  var start=Date.now();
+  var device=/Mobile|Android|iPhone|iPad/.test(navigator.userAgent)?'📱 Mobile':'💻 Desktop';
+  var os=navigator.userAgent.match(/(Windows|Mac|Linux|Android|iPhone|iPad)/)||['?'];
+  var lang=navigator.language||'?';
+  var screen=window.screen.width+'x'+window.screen.height;
+  var isRetour=profil.visites>1;
+
+  var couleur=isRetour?0xf5c518:0x2dc653; // Or si retour, vert si nouveau
+  var titre=isRetour
+    ? '🔄 Retour de '+profil.pseudo+' (visite n°'+profil.visites+')'
+    : '🟢 Nouveau joueur — '+profil.pseudo;
+
+  fetch(WH,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    username:'🏎️ SPEED RACE',
+    embeds:[{
+      title:titre,
+      color:couleur,
+      fields:[
+        {name:'👤 Pseudo',    value:'**'+profil.pseudo+'**',          inline:true},
+        {name:'🔢 Visites',   value:profil.visites+' fois',           inline:true},
+        {name:'📟 Appareil',  value:device,                           inline:true},
+        {name:'💻 OS',        value:os[0],                            inline:true},
+        {name:'🌐 Langue',    value:lang,                             inline:true},
+        {name:'🖥️ Résolution',value:screen,                          inline:true},
+        {name:'📅 1ère visite',value:profil.firstSeen,               inline:false},
+        {name:'🕐 Maintenant', value:new Date().toLocaleString('fr-FR'), inline:false}
+      ],
+      footer:{text:'SPEED RACE Tracker'},
+      timestamp:new Date().toISOString()
+    }]
+  })});
+
+  // Notif quand il part + durée
+  window.addEventListener('beforeunload',function(){
+    var d=Math.round((Date.now()-start)/1000);
+    navigator.sendBeacon(WH,JSON.stringify({
+      username:'🏎️ SPEED RACE',
+      embeds:[{
+        title:'🔴 '+profil.pseudo+' est parti',
+        color:0x333333,
+        fields:[
+          {name:'👤',value:'**'+profil.pseudo+'**',inline:true},
+          {name:'⏱️ Temps de jeu',value:Math.floor(d/60)+'min '+(d%60)+'sec',inline:true}
+        ],
+        timestamp:new Date().toISOString()
+      }]
+    }));
+  });
 })();
 </script>
 
