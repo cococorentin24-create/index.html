@@ -196,7 +196,7 @@ body.perf-high #s-icon{will-change:transform,opacity;}
   <h2>PAUSE</h2><p>LE JEU EST EN PAUSE</p>
   <div class="p-card gl">
     <button class="p-btn p-resume" id="resume-btn">▶ REPRENDRE</button>
-    <button class="p-btn p-quit" id="quit-btn">← CATALOGUE</button>
+    <button class="p-btn p-quit" id="quit-btn">← MENU</button>
   </div>
 </div>
 
@@ -224,21 +224,21 @@ body.perf-high #s-icon{will-change:transform,opacity;}
 'use strict';
 
 /* ══════════════════════════════════════════════════════════════════
-   PERF ENGINE v5 — SPEED RACE
-   (identique à Pixel Run — hardware = plafond, FPS = descente seule)
+   PERF ENGINE v6 — SPEED RACE
+   (benchmark plus agressif, détection LOW rapide, LOW ultra-léger)
 ══════════════════════════════════════════════════════════════════ */
 var PERF = (function(){
 
   var CFG = {
-    gpuIter:50, gpuFastMs:16, gpuSlowMs:48,
-    hwHighMin:62, hwMidMin:28,
-    fpsDnHigh:34, fpsDnMid:20,
-    fpsUpMid:56,  fpsUpHigh:68,
-    coolDown:4000, coolUp:30000,
-    confirmDn:3,   confirmUp:10,
-    fpsEMA:0.88,
-    renderMinMs:28,
-    partMul:{ high:1.0, mid:0.6, low:0.15 },
+    gpuIter:50, gpuFastMs:12, gpuSlowMs:40,
+    hwHighMin:65, hwMidMin:35,
+    fpsDnHigh:38, fpsDnMid:24,
+    fpsUpMid:58,  fpsUpHigh:68,
+    coolDown:2000, coolUp:30000,
+    confirmDn:2,   confirmUp:10,
+    fpsEMA:0.82,
+    renderMinMs:18,
+    partMul:{ high:1.0, mid:0.5, low:0.08 },
   };
 
   var S = {
@@ -628,38 +628,53 @@ function drawPlayer(){
 }
 
 function drawRoad(spd){
+  var isLow=PERF.isLow();
+  /* ── Fond ── */
   ctx.fillStyle='#06060f';ctx.fillRect(0,0,W,H);
-  var lg=ctx.createLinearGradient(0,0,ROAD.x,0);lg.addColorStop(0,'#020208');lg.addColorStop(1,'#0d0d18');
-  ctx.fillStyle=lg;ctx.fillRect(0,0,ROAD.x,H);
-  var rg=ctx.createLinearGradient(ROAD.x+ROAD.w,0,W,0);rg.addColorStop(0,'#0d0d18');rg.addColorStop(1,'#020208');
-  ctx.fillStyle=rg;ctx.fillRect(ROAD.x+ROAD.w,0,W-ROAD.x-ROAD.w,H);
-  var rb=ctx.createLinearGradient(ROAD.x,0,ROAD.x+ROAD.w,0);
-  rb.addColorStop(0,'#0e0e16');rb.addColorStop(.5,'#16161e');rb.addColorStop(1,'#0e0e16');
-  ctx.fillStyle=rb;ctx.fillRect(ROAD.x,0,ROAD.w,H);
+  if(isLow){
+    ctx.fillStyle='#080818';ctx.fillRect(0,0,ROAD.x,H);
+    ctx.fillStyle='#080818';ctx.fillRect(ROAD.x+ROAD.w,0,W-ROAD.x-ROAD.w,H);
+    ctx.fillStyle='#111120';ctx.fillRect(ROAD.x,0,ROAD.w,H);
+  } else {
+    var lg=ctx.createLinearGradient(0,0,ROAD.x,0);lg.addColorStop(0,'#020208');lg.addColorStop(1,'#0d0d18');
+    ctx.fillStyle=lg;ctx.fillRect(0,0,ROAD.x,H);
+    var rg=ctx.createLinearGradient(ROAD.x+ROAD.w,0,W,0);rg.addColorStop(0,'#0d0d18');rg.addColorStop(1,'#020208');
+    ctx.fillStyle=rg;ctx.fillRect(ROAD.x+ROAD.w,0,W-ROAD.x-ROAD.w,H);
+    var rb=ctx.createLinearGradient(ROAD.x,0,ROAD.x+ROAD.w,0);
+    rb.addColorStop(0,'#0e0e16');rb.addColorStop(.5,'#16161e');rb.addColorStop(1,'#0e0e16');
+    ctx.fillStyle=rb;ctx.fillRect(ROAD.x,0,ROAD.w,H);
+  }
+  /* ── Bords ── */
   ctx.strokeStyle='rgba(232,25,44,.72)';ctx.lineWidth=2.5;
   ctx.beginPath();ctx.moveTo(ROAD.x,0);ctx.lineTo(ROAD.x,H);ctx.stroke();
   ctx.beginPath();ctx.moveTo(ROAD.x+ROAD.w,0);ctx.lineTo(ROAD.x+ROAD.w,H);ctx.stroke();
-  var el=ctx.createLinearGradient(ROAD.x,0,ROAD.x+26,0);el.addColorStop(0,'rgba(232,25,44,.10)');el.addColorStop(1,'rgba(0,0,0,0)');
-  ctx.fillStyle=el;ctx.fillRect(ROAD.x,0,26,H);
-  var er=ctx.createLinearGradient(ROAD.x+ROAD.w-26,0,ROAD.x+ROAD.w,0);er.addColorStop(0,'rgba(0,0,0,0)');er.addColorStop(1,'rgba(232,25,44,.10)');
-  ctx.fillStyle=er;ctx.fillRect(ROAD.x+ROAD.w-26,0,26,H);
+  if(!isLow){
+    var el=ctx.createLinearGradient(ROAD.x,0,ROAD.x+26,0);el.addColorStop(0,'rgba(232,25,44,.10)');el.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=el;ctx.fillRect(ROAD.x,0,26,H);
+    var er=ctx.createLinearGradient(ROAD.x+ROAD.w-26,0,ROAD.x+ROAD.w,0);er.addColorStop(0,'rgba(0,0,0,0)');er.addColorStop(1,'rgba(232,25,44,.10)');
+    ctx.fillStyle=er;ctx.fillRect(ROAD.x+ROAD.w-26,0,26,H);
+  }
+  /* ── Lignes de voie ── */
   roadY=(roadY+spd)%(H/5);
   for(var ln=0;ln<ROAD.lanes-1;ln++){var lx=ROAD.x+(ln+1)*ROAD.laneW;for(var di=0;di<9;di++){var dy=(di*(H/5)+roadY)%H;ctx.fillStyle='rgba(255,255,255,.055)';ctx.fillRect(lx-1.5,dy,3,H/11);}}
-  gridOff=(gridOff+spd*.58)%72;
-  ctx.strokeStyle='rgba(232,25,44,.028)';ctx.lineWidth=1;
-  for(var gy=gridOff;gy<H;gy+=72){ctx.beginPath();ctx.moveTo(ROAD.x,gy);ctx.lineTo(ROAD.x+ROAD.w,gy);ctx.stroke();}
-  var sh=ctx.createLinearGradient(ROAD.x,0,ROAD.x+ROAD.w,0);sh.addColorStop(0,'rgba(255,255,255,0)');sh.addColorStop(.5,'rgba(255,255,255,.010)');sh.addColorStop(1,'rgba(255,255,255,0)');
-  ctx.fillStyle=sh;ctx.fillRect(ROAD.x,0,ROAD.w,H);
-  var d=DIFF[diffIdx];
-  var sr=clamp((G.spd-d.startSpd)/(d.maxSpd-d.startSpd),0,1);
-  if(sr>0.15){
-    var slA=clamp((sr-.15)/.85,0,1)*.26;
-    ctx.save();ctx.globalAlpha=slA;
-    for(var si=0;si<12;si++){var slx=ROAD.x-5-si*12;if(slx<2)continue;var sly=((si*67+roadY*2.9+si*21)%(H+60))-30;var sll=(22+si*7%38)*(.5+sr*.9);var slg=ctx.createLinearGradient(0,sly,0,sly+sll);slg.addColorStop(0,'rgba(160,140,255,0)');slg.addColorStop(.5,'rgba(160,140,255,.82)');slg.addColorStop(1,'rgba(160,140,255,0)');ctx.strokeStyle=slg;ctx.lineWidth=.65+(si%3)*.3;ctx.beginPath();ctx.moveTo(slx,sly);ctx.lineTo(slx-1,sly+sll);ctx.stroke();}
-    for(var sj=0;sj<12;sj++){var srx=ROAD.x+ROAD.w+5+sj*12;if(srx>W-2)continue;var sry=((sj*71+roadY*2.9+sj*17+38)%(H+60))-30;var srl=(22+sj*7%38)*(.5+sr*.9);var srg=ctx.createLinearGradient(0,sry,0,sry+srl);srg.addColorStop(0,'rgba(160,140,255,0)');srg.addColorStop(.5,'rgba(160,140,255,.82)');srg.addColorStop(1,'rgba(160,140,255,0)');ctx.strokeStyle=srg;ctx.lineWidth=.65+(sj%3)*.3;ctx.beginPath();ctx.moveTo(srx,sry);ctx.lineTo(srx+1,sry+srl);ctx.stroke();}
-    ctx.restore();
+  /* ── Grille + effets vitesse (coupés en LOW) ── */
+  if(!isLow){
+    gridOff=(gridOff+spd*.58)%72;
+    ctx.strokeStyle='rgba(232,25,44,.028)';ctx.lineWidth=1;
+    for(var gy=gridOff;gy<H;gy+=72){ctx.beginPath();ctx.moveTo(ROAD.x,gy);ctx.lineTo(ROAD.x+ROAD.w,gy);ctx.stroke();}
+    var sh=ctx.createLinearGradient(ROAD.x,0,ROAD.x+ROAD.w,0);sh.addColorStop(0,'rgba(255,255,255,0)');sh.addColorStop(.5,'rgba(255,255,255,.010)');sh.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=sh;ctx.fillRect(ROAD.x,0,ROAD.w,H);
+    var d=DIFF[diffIdx];
+    var sr=clamp((G.spd-d.startSpd)/(d.maxSpd-d.startSpd),0,1);
+    if(sr>0.15){
+      var slA=clamp((sr-.15)/.85,0,1)*.26;
+      ctx.save();ctx.globalAlpha=slA;
+      for(var si=0;si<12;si++){var slx=ROAD.x-5-si*12;if(slx<2)continue;var sly=((si*67+roadY*2.9+si*21)%(H+60))-30;var sll=(22+si*7%38)*(.5+sr*.9);var slg=ctx.createLinearGradient(0,sly,0,sly+sll);slg.addColorStop(0,'rgba(160,140,255,0)');slg.addColorStop(.5,'rgba(160,140,255,.82)');slg.addColorStop(1,'rgba(160,140,255,0)');ctx.strokeStyle=slg;ctx.lineWidth=.65+(si%3)*.3;ctx.beginPath();ctx.moveTo(slx,sly);ctx.lineTo(slx-1,sly+sll);ctx.stroke();}
+      for(var sj=0;sj<12;sj++){var srx=ROAD.x+ROAD.w+5+sj*12;if(srx>W-2)continue;var sry=((sj*71+roadY*2.9+sj*17+38)%(H+60))-30;var srl=(22+sj*7%38)*(.5+sr*.9);var srg=ctx.createLinearGradient(0,sry,0,sry+srl);srg.addColorStop(0,'rgba(160,140,255,0)');srg.addColorStop(.5,'rgba(160,140,255,.82)');srg.addColorStop(1,'rgba(160,140,255,0)');ctx.strokeStyle=srg;ctx.lineWidth=.65+(sj%3)*.3;ctx.beginPath();ctx.moveTo(srx,sry);ctx.lineTo(srx+1,sry+srl);ctx.stroke();}
+      ctx.restore();
+    }
+    if(sr>0.62){var vigA=clamp((sr-.62)/.38,0,1)*.18;var vig=ctx.createRadialGradient(W/2,H/2,H*.26,W/2,H/2,H*.85);vig.addColorStop(0,'rgba(0,0,0,0)');vig.addColorStop(1,'rgba(200,0,0,'+vigA+')');ctx.fillStyle=vig;ctx.fillRect(0,0,W,H);}
   }
-  if(sr>0.62){var vigA=clamp((sr-.62)/.38,0,1)*.18;var vig=ctx.createRadialGradient(W/2,H/2,H*.26,W/2,H/2,H*.85);vig.addColorStop(0,'rgba(0,0,0,0)');vig.addColorStop(1,'rgba(200,0,0,'+vigA+')');ctx.fillStyle=vig;ctx.fillRect(0,0,W,H);}
 }
 
 function getLaneTimer(c){
